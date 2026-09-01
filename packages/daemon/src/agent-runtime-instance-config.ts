@@ -182,7 +182,13 @@ export function runtimeInstanceConfig(value: unknown): RuntimeInstanceConfig {
       "invalid_runtime_credential_header",
       "credentialHeader is available only for API-key runtime instances.",
     );
-  if (codex.credentialHeader !== undefined && codex.httpHeaders?.[codex.credentialHeader] !== undefined)
+  if (
+    codex.credentialHeader !== undefined &&
+    codex.httpHeaders !== undefined &&
+    Object.keys(codex.httpHeaders).some(
+      (header) => header.toLowerCase() === codex.credentialHeader!.toLowerCase(),
+    )
+  )
     throw runtimeInstanceError(
       "invalid_runtime_credential_header",
       "credentialHeader must not overlap a static HTTP header.",

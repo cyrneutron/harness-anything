@@ -141,6 +141,37 @@ test("Codex API-key launches inject the resolved credential into the contracted 
   }
 });
 
+test("Codex credential header collision is rejected case-insensitively", () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-header-collision-"));
+  try {
+    const store = openRuntimeInstanceStore({ userRoot, discover: () => [observed] });
+    assert.throws(
+      () =>
+        store.create({
+          schemaVersion: 2,
+          instanceId: "codex-header-collision",
+          name: "Codex Header Collision",
+          kindId: "codex",
+          installationId: observed.installationId,
+          providerId: "sub2api",
+          models: ["gpt-5.6-sol"],
+          defaultModel: "gpt-5.6-sol",
+          enabled: true,
+          isolationState: "enforced",
+          codex: {
+            baseUrl: "http://127.0.0.1:1",
+            httpHeaders: { "X-Custom": "static" },
+            credentialHeader: "x-custom",
+          },
+          auth: { mode: "api-key", credentialRef: "credential:v1:codex-header-collision" },
+        }),
+      (error: unknown) => codedAs(error, "invalid_runtime_credential_header"),
+    );
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
 test("same-instance API-key launches keep the previous bearer during the next credential lookup", async () => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-api-key-fanout-"));
   let credentialLookups = 0;
