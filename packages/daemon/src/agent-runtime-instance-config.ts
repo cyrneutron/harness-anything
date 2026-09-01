@@ -238,7 +238,10 @@ export function codexRuntimeConfig(value: unknown): CodexRuntimeInstanceConfig {
   )
     throw runtimeInstanceError(
       "invalid_runtime_kind_config",
-      "codex configuration accepts only reasoningEffort, baseUrl, allowInsecureHttp, wireApi, requiresOpenAiAuth, httpHeaders, and credentialHeader.",
+      [
+        "codex configuration accepts only reasoningEffort, baseUrl, allowInsecureHttp, ",
+        "wireApi, requiresOpenAiAuth, httpHeaders, and credentialHeader.",
+      ].join(""),
     );
   const effort = value.reasoningEffort === undefined ? undefined : runtimeEffort(value.reasoningEffort),
     allowInsecureHttp =

@@ -789,10 +789,24 @@ function initialLeaderPrompt(state: SquadState): string {
   const directMode = state.workers.length
     ? []
     : [
-        "This Squad has no declared workers. You are the sole Squad Leader and must perform the mission directly in the task cwd.",
-        "The run is read-only: inspect files, Git state, and existing artifacts only; do not edit files, run destructive commands, or invoke another agent.",
-        "After completing the bounded diagnosis, return the converged object below. Put the useful diagnosis in the same JSON object using only a concise summary string and an array of findings with path and observation fields.",
-        'Example: {"schema":"squad-decision/v1","action":"converged","summary":"...","findings":[{"path":"relative/path","observation":"..."}]}',
+        [
+          "This Squad has no declared workers. You are the sole Squad Leader and must",
+          "perform the mission directly in the task cwd.",
+        ].join(" "),
+        [
+          "The run is read-only: inspect files, Git state, and existing artifacts only;",
+          "do not edit files, run destructive commands, or invoke another agent.",
+        ].join(" "),
+        [
+          "After completing the bounded diagnosis, return the converged object below.",
+          "Put the useful diagnosis in the same JSON object using only a concise summary",
+          "string and an array of findings with path and observation fields.",
+        ].join(" "),
+        [
+          'Example: {"schema":"squad-decision/v1","action":"converged",',
+          '"summary":"...","findings":[{"path":"relative/path",',
+          '"observation":"..."}]}'
+        ].join(""),
       ];
   return [
     "# Squad dispatch protocol",
@@ -855,7 +869,8 @@ function parseLeaderDecision(text: string, runtimeInstanceId: string, workers: r
   const row = value as Record<string, unknown>;
   if (row.schema === "squad-decision/v1" && row.action === "converged") {
     const allowed = new Set(["schema", "action", "summary", "findings"]);
-    if (Object.keys(row).some((key) => !allowed.has(key))) throw new Error("Leader convergence contains unknown fields.");
+    if (Object.keys(row).some((key) => !allowed.has(key)))
+      throw new Error("Leader convergence contains unknown fields.");
     const summary = row.summary;
     if (summary !== undefined && (typeof summary !== "string" || !summary.trim() || summary.length > 4_000))
       throw new Error("Leader convergence summary is invalid.");
