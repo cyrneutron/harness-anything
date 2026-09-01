@@ -160,9 +160,13 @@ export function publicConfig(
         reasoningEffort: config.codex.reasoningEffort ?? null,
         baseUrl: config.codex.baseUrl ?? null,
         baseUrlConfigured: config.codex.baseUrl !== undefined,
+        ...(config.codex.allowInsecureHttp ? { allow_insecure_http: true } : {}),
         wire_api: config.codex.wireApi ?? null,
         requires_openai_auth: config.codex.requiresOpenAiAuth ?? null,
         http_headers: config.codex.httpHeaders ?? null,
+        ...(config.codex.credentialHeader === undefined
+          ? {}
+          : { credential_header: config.codex.credentialHeader }),
       },
     };
   return {
@@ -266,6 +270,10 @@ export function writeCodexConfig(
   bearerToken?: string,
 ): void {
   const provider = config.codex,
+    headers =
+      bearerToken && provider.credentialHeader
+        ? { ...(provider.httpHeaders ?? {}), [provider.credentialHeader]: bearerToken }
+        : provider.httpHeaders,
     lines = [
       `model_provider = ${tomlString(config.providerId)}`,
       ...(provider.reasoningEffort ? [`model_reasoning_effort = ${tomlString(provider.reasoningEffort)}`] : []),
@@ -277,12 +285,16 @@ export function writeCodexConfig(
       `name = ${tomlString(config.providerId)}`,
       ...(provider.baseUrl ? [`base_url = ${tomlString(provider.baseUrl)}`] : []),
       ...(provider.wireApi ? [`wire_api = ${tomlString(provider.wireApi)}`] : []),
-      ...(provider.requiresOpenAiAuth === undefined ? [] : [`requires_openai_auth = ${provider.requiresOpenAiAuth}`]),
-      ...(provider.httpHeaders
+      ...(provider.requiresOpenAiAuth === undefined && config.providerId !== "openai"
+        ? ["requires_openai_auth = false"]
+        : provider.requiresOpenAiAuth === undefined
+          ? []
+          : [`requires_openai_auth = ${provider.requiresOpenAiAuth}`]),
+      ...(headers
         ? [
             [
               "http_headers = { ",
-              `${Object.entries(provider.httpHeaders)
+              `${Object.entries(headers)
                 .sort(([a], [b]) => a.localeCompare(b))
                 .map(([key, value]) => `${tomlString(key)} = ${tomlString(value)}`)
                 .join(", ")}`,
@@ -290,7 +302,9 @@ export function writeCodexConfig(
             ].join(""),
           ]
         : []),
-      ...(bearerToken ? [`experimental_bearer_token = ${tomlString(bearerToken)}`] : []),
+      ...(bearerToken && !provider.credentialHeader
+        ? [`experimental_bearer_token = ${tomlString(bearerToken)}`]
+        : []),
     );
   const temp = `${target}.${process.pid}.tmp`;
   writeFileSync(temp, `${lines.join("\n")}\n`, {

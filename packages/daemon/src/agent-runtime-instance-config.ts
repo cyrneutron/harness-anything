@@ -169,17 +169,36 @@ export function runtimeInstanceConfig(value: unknown): RuntimeInstanceConfig {
       agy: agyRuntimeConfig(flat ? {} : value.agy),
     };
   const codex = codexRuntimeConfig(
-    flat ? { reasoningEffort: value.reasoningEffort, baseUrl: value.baseUrl } : value.codex,
+    flat
+      ? {
+          reasoningEffort: value.reasoningEffort,
+          baseUrl: value.baseUrl,
+          allowInsecureHttp: value.allowInsecureHttp,
+        }
+      : value.codex,
   );
+  if (codex.credentialHeader !== undefined && auth.mode !== "api-key")
+    throw runtimeInstanceError(
+      "invalid_runtime_credential_header",
+      "credentialHeader is available only for API-key runtime instances.",
+    );
+  if (codex.credentialHeader !== undefined && codex.httpHeaders?.[codex.credentialHeader] !== undefined)
+    throw runtimeInstanceError(
+      "invalid_runtime_credential_header",
+      "credentialHeader must not overlap a static HTTP header.",
+    );
   if (
     common.providerId === "openai" &&
-    (codex.wireApi !== undefined || codex.requiresOpenAiAuth !== undefined || codex.httpHeaders !== undefined)
+    (codex.allowInsecureHttp !== undefined ||
+      codex.wireApi !== undefined ||
+      codex.requiresOpenAiAuth !== undefined ||
+      codex.httpHeaders !== undefined ||
+      codex.credentialHeader !== undefined)
   )
     throw runtimeInstanceError(
       "invalid_runtime_kind_config",
       [
-        "The built-in openai provider cannot accept a custom wireApi, ",
-        "requiresOpenAiAuth, or httpHeaders; use a distinct providerId.",
+        "The built-in openai provider cannot accept custom transport or credential options; use a distinct providerId.",
       ].join(""),
     );
   return { ...common, kindId: "codex", codex };
@@ -197,27 +216,47 @@ export function codexRuntimeConfig(value: unknown): CodexRuntimeInstanceConfig {
   if (
     !isRuntimeInstanceRecord(value) ||
     Object.keys(value).some(
-      (key) => !["reasoningEffort", "baseUrl", "wireApi", "requiresOpenAiAuth", "httpHeaders"].includes(key),
+      (key) =>
+        ![
+          "reasoningEffort",
+          "baseUrl",
+          "allowInsecureHttp",
+          "wireApi",
+          "requiresOpenAiAuth",
+          "httpHeaders",
+          "credentialHeader",
+        ].includes(
+          key,
+        ),
     )
   )
     throw runtimeInstanceError(
       "invalid_runtime_kind_config",
-      "codex configuration accepts only reasoningEffort, baseUrl, wireApi, requiresOpenAiAuth, and httpHeaders.",
+      "codex configuration accepts only reasoningEffort, baseUrl, allowInsecureHttp, wireApi, requiresOpenAiAuth, httpHeaders, and credentialHeader.",
     );
   const effort = value.reasoningEffort === undefined ? undefined : runtimeEffort(value.reasoningEffort),
-    baseUrl = value.baseUrl === undefined ? undefined : secureRuntimeBaseUrl(value.baseUrl),
+    allowInsecureHttp =
+      value.allowInsecureHttp === undefined ? undefined : requireBoolean(value.allowInsecureHttp, "allowInsecureHttp"),
+    baseUrl =
+      value.baseUrl === undefined
+        ? undefined
+        : secureRuntimeBaseUrl(value.baseUrl, { allowInsecureHttp: allowInsecureHttp === true }),
     wireApi = value.wireApi === undefined ? undefined : identifier(value.wireApi, "wireApi"),
     requiresOpenAiAuth =
       value.requiresOpenAiAuth === undefined
         ? undefined
         : requireBoolean(value.requiresOpenAiAuth, "requiresOpenAiAuth"),
-    httpHeaders = value.httpHeaders === undefined ? undefined : runtimeHttpHeaders(value.httpHeaders);
+    httpHeaders = value.httpHeaders === undefined ? undefined : runtimeHttpHeaders(value.httpHeaders),
+    credentialHeader =
+      value.credentialHeader === undefined ? undefined : runtimeCredentialHeader(value.credentialHeader);
   return {
     ...(effort ? { reasoningEffort: effort } : {}),
     ...(baseUrl ? { baseUrl } : {}),
+    ...(allowInsecureHttp ? { allowInsecureHttp } : {}),
     ...(wireApi ? { wireApi } : {}),
     ...(requiresOpenAiAuth === undefined ? {} : { requiresOpenAiAuth }),
     ...(httpHeaders ? { httpHeaders } : {}),
+    ...(credentialHeader ? { credentialHeader } : {}),
   };
 }
 
@@ -250,6 +289,16 @@ export function runtimeHttpHeaders(value: unknown): Readonly<Record<string, stri
     result[name] = item;
   }
   return result;
+}
+
+export function runtimeCredentialHeader(value: unknown): string {
+  const name = typeof value === "string" ? value.trim() : "";
+  if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/u.test(name))
+    throw runtimeInstanceError(
+      "invalid_runtime_credential_header",
+      "credentialHeader must be a valid HTTP header name.",
+    );
+  return name;
 }
 
 export function needsRuntimeInstanceNormalization(value: unknown): boolean {

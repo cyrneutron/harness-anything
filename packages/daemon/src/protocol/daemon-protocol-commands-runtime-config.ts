@@ -160,7 +160,11 @@ export const runtimeConfigProtocolCommands = Object.freeze([
       }),
       cliInput("--base-url", "single", false, {
         code: "invalid_field",
-        nextAction: "Use an HTTPS or loopback HTTP API base URL.",
+        nextAction: "Use an HTTPS or loopback HTTP API base URL; private HTTP requires --allow-insecure-http.",
+      }),
+      cliInput("--allow-insecure-http", "boolean", false, {
+        code: "invalid_field",
+        nextAction: "Use --allow-insecure-http only for an explicitly trusted RFC1918 HTTP provider.",
       }),
       cliInput("--wire-api", "single", false, {
         code: "invalid_field",
@@ -173,6 +177,11 @@ export const runtimeConfigProtocolCommands = Object.freeze([
       cliInput("--http-header", "repeated", false, {
         code: "invalid_field",
         nextAction: "Use --http-header Name=Value only for non-secret static Codex provider headers.",
+      }),
+      cliInput("--credential-header", "single", false, {
+        code: "invalid_field",
+        nextAction:
+          "Use --credential-header <name> to inject the opaque API-key credential into one Codex request header.",
       }),
       cliInput(
         "--auth",

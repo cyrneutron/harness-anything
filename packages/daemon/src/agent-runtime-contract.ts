@@ -43,9 +43,11 @@ export type AgentRuntimeInstanceDto = AgentRuntimeInstanceCommonDto &
           readonly reasoningEffort: string | null;
           readonly baseUrl: string | null;
           readonly baseUrlConfigured: boolean;
+          readonly allow_insecure_http?: boolean;
           readonly wire_api: string | null;
           readonly requires_openai_auth: boolean | null;
           readonly http_headers: Readonly<Record<string, string>> | null;
+          readonly credential_header?: string;
         };
       }
     | { readonly kindId: "agy"; readonly agy: { readonly effort: "low" | "medium" | "high" | null } }
@@ -343,14 +345,11 @@ function validClaudeInstanceConfig(value: unknown): boolean {
 function validCodexInstanceConfig(value: unknown): boolean {
   return (
     isAgentRuntimeContractRecord(value) &&
-    hasExactAgentRuntimeContractFields(value, [
-      "reasoningEffort",
-      "baseUrl",
-      "baseUrlConfigured",
-      "wire_api",
-      "requires_openai_auth",
-      "http_headers",
-    ]) &&
+    hasAgentRuntimeContractFields(
+      value,
+      ["reasoningEffort", "baseUrl", "baseUrlConfigured", "wire_api", "requires_openai_auth", "http_headers"],
+      ["allow_insecure_http", "credential_header"],
+    ) &&
     (value.reasoningEffort === null || typeof value.reasoningEffort === "string") &&
     (value.baseUrl === null || typeof value.baseUrl === "string") &&
     typeof value.baseUrlConfigured === "boolean" &&
@@ -362,7 +361,9 @@ function validCodexInstanceConfig(value: unknown): boolean {
           ([name, header]) =>
             !/(?:authorization|api[-_]?key|cookie|credential|password|secret|token)/iu.test(name) &&
             typeof header === "string",
-        )))
+        ))) &&
+    (value.credential_header === undefined || typeof value.credential_header === "string") &&
+    (value.allow_insecure_http === undefined || value.allow_insecure_http === true)
   );
 }
 function validAgyInstanceConfig(value: unknown): boolean {

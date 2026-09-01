@@ -58,7 +58,11 @@ const detail = {
         trigger: { kind: "worker_outcome", runtimeSessionId: "runtime-worker-1" },
         dispatchId: "dispatch_000000000000000000000002",
         runtimeSessionId: "runtime-leader",
-        decision: { kind: "converged" },
+        decision: {
+          kind: "converged",
+          summary: "The bounded diagnosis is complete.",
+          findings: [{ path: "packages/daemon/src/squad-coordinator.ts", observation: "Leader findings are projected." }],
+        },
         resultText: null,
         status: null,
         startedAt: null,

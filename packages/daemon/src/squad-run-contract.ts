@@ -29,9 +29,13 @@ export type SquadRunTriggerDto =
   | { readonly kind: "worker_outcome"; readonly runtimeSessionId: string }
   | { readonly kind: "worker_wait"; readonly runtimeSessionId: string; readonly reason: string }
   | { readonly kind: "worker_rejected"; readonly attemptId: string };
+export interface SquadRunFindingDto {
+  readonly path: string;
+  readonly observation: string;
+}
 /** leader 轮次已解析的决策:派工计划(含派工数)或收敛。null = 决策尚未解析。 */
 export type SquadRunDecisionDto =
-  | { readonly kind: "converged" }
+  | { readonly kind: "converged"; readonly summary?: string; readonly findings?: readonly SquadRunFindingDto[] }
   | { readonly kind: "plan"; readonly dispatchCount: number };
 export type SquadRunTurnStatus = "running" | "succeeded" | "failed" | "unknown" | "cancelled" | "lost";
 export interface SquadRunLeaderTurnDto {
@@ -212,9 +216,24 @@ function validSquadRunTrigger(value: unknown): value is SquadRunTriggerDto {
 
 function validSquadRunDecision(value: unknown): value is SquadRunDecisionDto {
   if (!squadRunRecord(value) || typeof value.kind !== "string") return false;
-  if (value.kind === "converged") return exactSquadRunFields(value, ["kind"]);
+  if (value.kind === "converged")
+    return (
+      exactSquadRunFields(value, ["kind", "summary", "findings"].filter((field) => Object.hasOwn(value, field))) &&
+      (value.summary === undefined || boundedSquadRunText(value.summary, 4_000)) &&
+      (value.findings === undefined ||
+        (Array.isArray(value.findings) && value.findings.length <= 32 && value.findings.every(validSquadRunFinding)))
+    );
   return (
     value.kind === "plan" && exactSquadRunFields(value, ["kind", "dispatchCount"]) && squadRunCount(value.dispatchCount)
+  );
+}
+
+function validSquadRunFinding(value: unknown): value is SquadRunFindingDto {
+  return (
+    squadRunRecord(value) &&
+    exactSquadRunFields(value, ["path", "observation"]) &&
+    safeSquadRunPath(value.path) &&
+    boundedSquadRunText(value.observation, 4_000)
   );
 }
 
@@ -249,6 +268,14 @@ function exactSquadRunFields(value: Readonly<Record<string, unknown>>, fields: r
 }
 function squadRunText(value: unknown): value is string {
   return typeof value === "string" && value.length > 0;
+}
+function boundedSquadRunText(value: unknown, limit: number): value is string {
+  return squadRunText(value) && value.length <= limit;
+}
+function safeSquadRunPath(value: unknown): value is string {
+  if (!boundedSquadRunText(value, 500) || value.includes("\\") || value.startsWith("/")) return false;
+  const parts = value.split("/");
+  return parts.every((part) => part.length > 0 && part !== "." && part !== "..");
 }
 function squadRunCount(value: unknown): value is number {
   return Number.isSafeInteger(value) && Number(value) >= 0;
