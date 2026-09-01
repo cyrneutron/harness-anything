@@ -16,13 +16,14 @@ import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import type { RuntimeBinding } from "./runtime-spawn-types.ts";
 import type {
   SquadRunPhase,
+  SquadRunFindingDto,
   SquadRunReadResult,
   SquadRunsListResult,
   SquadRunSummaryDto,
 } from "./squad-run-contract.ts";
 
 type LeaderDecision =
-  | { readonly kind: "converged" }
+  | { readonly kind: "converged"; readonly summary?: string; readonly findings?: readonly SquadRunFindingDto[] }
   | {
       readonly kind: "plan";
       readonly dispatches: readonly WorkerPlan[];
@@ -184,7 +185,7 @@ export function makeSquadCoordinator(input: {
       );
     const state = readSquadRunState(squadRunId);
     if (!state) return rejection("squad-status", "squad_run_not_found", `Squad run ${squadRunId} does not exist.`);
-    const detail = statusDto(state);
+    const detail = statusDto(state) as unknown as JsonObject;
     return {
       schema: "command-receipt/v2",
       ok: true,
@@ -705,7 +706,11 @@ export function makeSquadCoordinator(input: {
               turn.decision === null
                 ? null
                 : turn.decision.kind === "converged"
-                  ? { kind: "converged" }
+                  ? {
+                      kind: "converged",
+                      ...(turn.decision.summary === undefined ? {} : { summary: turn.decision.summary }),
+                      ...(turn.decision.findings === undefined ? {} : { findings: turn.decision.findings }),
+                    }
                   : { kind: "plan", dispatchCount: turn.decision.dispatches.length },
             resultText: receiptText(row),
             status: row?.status ?? null,
@@ -769,20 +774,45 @@ export function makeSquadCoordinator(input: {
 }
 
 function initialLeaderPrompt(state: SquadState): string {
-  const example = JSON.stringify({
-    schema: "runtime-batch/v1",
-    dispatches: [
-      {
-        instance: state.runtimeInstanceId,
-        to: "worker-id",
-        prompt: "worker mission",
-      },
-    ],
-  });
+  const example = state.workers.length
+    ? JSON.stringify({
+        schema: "runtime-batch/v1",
+        dispatches: [
+          {
+            instance: state.runtimeInstanceId,
+            to: "worker-id",
+            prompt: "worker mission",
+          },
+        ],
+      })
+    : JSON.stringify({ schema: "squad-decision/v1", action: "converged" });
+  const directMode = state.workers.length
+    ? []
+    : [
+        [
+          "This Squad has no declared workers. You are the sole Squad Leader and must",
+          "perform the mission directly in the task cwd.",
+        ].join(" "),
+        [
+          "The run is read-only: inspect files, Git state, and existing artifacts only;",
+          "do not edit files, run destructive commands, or invoke another agent.",
+        ].join(" "),
+        [
+          "After completing the bounded diagnosis, return the converged object below.",
+          "Put the useful diagnosis in the same JSON object using only a concise summary",
+          "string and an array of findings with path and observation fields.",
+        ].join(" "),
+        [
+          'Example: {"schema":"squad-decision/v1","action":"converged",',
+          '"summary":"...","findings":[{"path":"relative/path",',
+          '"observation":"..."}]}'
+        ].join(""),
+      ];
   return [
     "# Squad dispatch protocol",
     "Return exactly one JSON object and no Markdown:",
     example,
+    ...directMode,
     "Choose only declared workers. Harness owns agent identity, task, cwd, and spawning.",
     `# Squad roster\n${state.roster}`,
     `# User mission\n${state.mission}`,
@@ -837,7 +867,46 @@ function parseLeaderDecision(text: string, runtimeInstanceId: string, workers: r
   }
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Leader result was not an object.");
   const row = value as Record<string, unknown>;
-  if (row.schema === "squad-decision/v1" && row.action === "converged") return { kind: "converged" };
+  if (row.schema === "squad-decision/v1" && row.action === "converged") {
+    const allowed = new Set(["schema", "action", "summary", "findings"]);
+    if (Object.keys(row).some((key) => !allowed.has(key)))
+      throw new Error("Leader convergence contains unknown fields.");
+    const summary = row.summary;
+    if (summary !== undefined && (typeof summary !== "string" || !summary.trim() || summary.length > 4_000))
+      throw new Error("Leader convergence summary is invalid.");
+    const findings = row.findings;
+    if (stateWorkersEmpty(workers) && (!Array.isArray(findings) || findings.length === 0))
+      throw new Error("A sole Squad Leader must return at least one finding.");
+    if (findings !== undefined) {
+      if (!Array.isArray(findings) || findings.length > 32)
+        throw new Error("Leader convergence findings are invalid.");
+      for (const finding of findings) {
+        if (
+          !finding ||
+          typeof finding !== "object" ||
+          Array.isArray(finding) ||
+          Object.keys(finding).some((key) => !["path", "observation"].includes(key)) ||
+          typeof (finding as Record<string, unknown>).path !== "string" ||
+          typeof (finding as Record<string, unknown>).observation !== "string" ||
+          !(finding as Record<string, unknown>).path ||
+          !(finding as Record<string, unknown>).observation ||
+          String((finding as Record<string, unknown>).path).length > 500 ||
+          String((finding as Record<string, unknown>).observation).length > 4_000 ||
+          String((finding as Record<string, unknown>).path).includes("\\") ||
+          String((finding as Record<string, unknown>).path).startsWith("/") ||
+          String((finding as Record<string, unknown>).path)
+            .split("/")
+            .some((part) => !part || part === "." || part === "..")
+        )
+          throw new Error("Leader convergence finding is invalid.");
+      }
+    }
+    return {
+      kind: "converged",
+      ...(summary === undefined ? {} : { summary }),
+      ...(findings === undefined ? {} : { findings: findings as readonly SquadRunFindingDto[] }),
+    };
+  }
   if (row.schema !== "runtime-batch/v1" || !Array.isArray(row.dispatches))
     throw new Error("Leader result must be runtime-batch/v1 or a converged squad-decision/v1.");
   const seen = new Set<string>(),
@@ -858,6 +927,10 @@ function parseLeaderDecision(text: string, runtimeInstanceId: string, workers: r
       return { instance, workerId, prompt };
     });
   return { kind: "plan", dispatches };
+}
+
+function stateWorkersEmpty(workers: readonly string[]): boolean {
+  return workers.length === 0;
 }
 
 function squadState(value: unknown): SquadState | null {

@@ -31,9 +31,12 @@ export interface ClaudeRuntimeInstanceConfig {
 export interface CodexRuntimeInstanceConfig {
   readonly reasoningEffort?: string;
   readonly baseUrl?: string;
+  readonly allowInsecureHttp?: boolean;
   readonly wireApi?: string;
   readonly requiresOpenAiAuth?: boolean;
   readonly httpHeaders?: Readonly<Record<string, string>>;
+  /** Header name receiving the resolved API-key credential at launch time. */
+  readonly credentialHeader?: string;
 }
 
 export interface AgyRuntimeInstanceConfig {

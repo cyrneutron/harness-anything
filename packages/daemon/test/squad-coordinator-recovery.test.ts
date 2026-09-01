@@ -45,6 +45,7 @@ function makeRecoveryFixture(
     readonly leaderResult?: string;
     readonly leaderTurnBudget: number;
     readonly workers?: readonly SeedWorker[];
+    readonly declaredWorkers?: readonly string[];
     readonly currentLeaderRuntimeSessionId?: string | null;
     readonly pendingLeaderTriggers?: readonly Readonly<Record<string, unknown>>[];
     readonly rejectWorkerOnce?: string;
@@ -99,7 +100,7 @@ function makeRecoveryFixture(
     effort: null,
     leaderAgentId: "leader",
     roster: "leader -> sol, terra",
-    workers: ["sol", "terra"],
+    workers: options.declaredWorkers ?? ["sol", "terra"],
     leaderTurnBudget: options.leaderTurnBudget,
     binding: { actor: { principal: { personId: "person-squad" }, executor: null }, source: "local" },
     leaderTurns: [
@@ -336,6 +337,32 @@ test("an empty non-converged plan re-asks the leader instead of failing the run"
     assert.match(String(fixture.spawns[0]?.prompt), /Leader returned no work and did not declare convergence\./u);
     const status = fixture.coordinator.status(SQUAD_RUN_ID);
     assert.equal(status.status, "leader_running", String(status.error));
+  });
+});
+
+test("a sole leader must return bounded findings and preserves them in the run decision", async () => {
+  await withRootDir(async (rootDir) => {
+    const result = JSON.stringify({
+        schema: "squad-decision/v1",
+        action: "converged",
+        summary: "The direct diagnosis is complete.",
+        findings: [{ path: "packages/daemon/src/squad-coordinator.ts", observation: "The result is projected." }],
+      }),
+      fixture = makeRecoveryFixture(rootDir, {
+        leaderOutcome: "succeeded",
+        leaderResult: result,
+        leaderTurnBudget: 3,
+        declaredWorkers: [],
+      });
+    await fixture.coordinator.observeOutcome(outcomeEvent(LEADER_SESSION_ID));
+
+    const status = fixture.coordinator.status(SQUAD_RUN_ID);
+    assert.equal(status.status, "converged", String(status.error));
+    assert.deepEqual(fixture.state().leaderTurns[0]?.decision, {
+      kind: "converged",
+      summary: "The direct diagnosis is complete.",
+      findings: [{ path: "packages/daemon/src/squad-coordinator.ts", observation: "The result is projected." }],
+    });
   });
 });
 

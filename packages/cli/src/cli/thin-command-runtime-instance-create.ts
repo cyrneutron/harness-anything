@@ -13,6 +13,7 @@ export function parseRuntimeInstanceCreate(
   const authMode = flags.one.get("--auth"),
     credentialRef = flags.one.get("--credential-ref"),
     kindId = flags.one.get("--kind"),
+    credentialHeader = flags.one.get("--credential-header"),
     header = runtimeHttpHeaderFlags(flags.many.get("--http-header") ?? []);
   if (authMode === "api-key" && !credentialRef)
     return rejected("missing_field", "API-key instances require --credential-ref <opaque-ref>.", json);
@@ -24,7 +25,14 @@ export function parseRuntimeInstanceCreate(
   if (hasForeignAdapterOptions(kindId, flags, header.value))
     return rejected("invalid_field", "This runtime kind does not accept options for another adapter.", json);
   const baseUrl = flags.one.get("--base-url"),
-    kindConfig = runtimeInstanceKindConfig(kindId, flags.one, flags.booleans, baseUrl, header.value);
+    kindConfig = runtimeInstanceKindConfig(
+      kindId,
+      flags.one,
+      flags.booleans,
+      baseUrl,
+      header.value,
+      credentialHeader,
+    );
   return accepted(
     rootDir,
     undefined,
@@ -56,6 +64,7 @@ function hasForeignAdapterOptions(
   return (
     (kindId === "claude" &&
       (flags.one.has("--effort") ||
+        flags.booleans.has("--allow-insecure-http") ||
         flags.one.has("--wire-api") ||
         flags.booleans.has("--requires-openai-auth") ||
         headers !== undefined)) ||
@@ -75,15 +84,18 @@ function runtimeInstanceKindConfig(
   booleans: Set<string>,
   baseUrl: string | undefined,
   headers: Readonly<Record<string, string>> | undefined,
+  credentialHeader: string | undefined,
 ) {
   return kindId === "codex"
     ? {
         codex: {
           ...(one.get("--effort") ? { reasoningEffort: one.get("--effort") } : {}),
           ...(baseUrl ? { baseUrl } : {}),
+          ...(booleans.has("--allow-insecure-http") ? { allowInsecureHttp: true } : {}),
           ...(one.get("--wire-api") ? { wireApi: one.get("--wire-api") } : {}),
           ...(booleans.has("--requires-openai-auth") ? { requiresOpenAiAuth: true } : {}),
           ...(headers ? { httpHeaders: headers } : {}),
+          ...(credentialHeader ? { credentialHeader } : {}),
         },
       }
     : kindId === "agy"
