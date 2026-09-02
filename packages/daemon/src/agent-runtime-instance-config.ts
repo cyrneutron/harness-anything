@@ -282,19 +282,22 @@ export function runtimeHttpHeaders(value: unknown): Readonly<Record<string, stri
       "invalid_runtime_http_headers",
       "httpHeaders must be a non-empty object of non-secret HTTP headers.",
     );
-  const result: Record<string, string> = {};
+  const result: Record<string, string> = {}, normalizedNames = new Set<string>();
   for (const [name, item] of Object.entries(value)) {
+    const normalizedName = name.toLowerCase();
     if (
       !/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/u.test(name) ||
       /(?:authorization|api[-_]?key|cookie|credential|password|secret|token)/iu.test(name) ||
       typeof item !== "string" ||
       !item ||
-      /[\r\n]/u.test(item)
+      /[\r\n]/u.test(item) ||
+      normalizedNames.has(normalizedName)
     )
       throw runtimeInstanceError(
         "invalid_runtime_http_headers",
         "httpHeaders must contain valid non-secret header names and single-line values.",
       );
+    normalizedNames.add(normalizedName);
     result[name] = item;
   }
   return result;

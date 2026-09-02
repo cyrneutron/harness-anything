@@ -6,6 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { parseThinCommand } from "../../cli/src/cli/thin-command.ts";
 import { credentialPort, runCredentialCommand } from "../src/agent-runtime-credential-port.ts";
+import { runtimeHttpHeaders } from "../src/agent-runtime-instance-config.ts";
 import { discoverRuntimeInstallations, openRuntimeInstanceStore, type RuntimeAuthReadiness, type RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
 import { ensureSharedAuthFile } from "../src/agent-runtime-instance-storage.ts";
 import { daemonProtocolCommands, validateDaemonRpcCall } from "../src/protocol/daemon-protocol.contract.ts";
@@ -170,6 +171,14 @@ test("Codex credential header collision is rejected case-insensitively", () => {
   } finally {
     rmSync(userRoot, { recursive: true, force: true });
   }
+});
+
+test("static HTTP header names reject case-variant duplicates and preserve spelling", () => {
+  assert.deepEqual(runtimeHttpHeaders({ "X-Custom": "static" }), { "X-Custom": "static" });
+  assert.throws(
+    () => runtimeHttpHeaders({ "X-Custom": "first", "x-custom": "second" }),
+    (error: unknown) => codedAs(error, "invalid_runtime_http_headers"),
+  );
 });
 
 test("same-instance API-key launches keep the previous bearer during the next credential lookup", async () => {

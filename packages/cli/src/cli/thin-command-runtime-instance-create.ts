@@ -113,7 +113,7 @@ function runtimeHttpHeaderFlags(
   | { readonly ok: true; readonly value?: Readonly<Record<string, string>> }
   | { readonly ok: false; readonly hint: string } {
   if (values.length === 0) return { ok: true };
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = {}, normalizedNames = new Set<string>();
   for (const value of values) {
     const separator = value.indexOf("=");
     if (separator < 1 || separator === value.length - 1)
@@ -122,12 +122,14 @@ function runtimeHttpHeaderFlags(
         hint: "Use --http-header Name=Value with a non-secret static header.",
       };
     const name = value.slice(0, separator),
-      item = value.slice(separator + 1);
-    if (Object.hasOwn(headers, name))
+      item = value.slice(separator + 1),
+      normalizedName = name.toLowerCase();
+    if (normalizedNames.has(normalizedName))
       return {
         ok: false,
         hint: `HTTP header ${name} was provided more than once.`,
       };
+    normalizedNames.add(normalizedName);
     headers[name] = item;
   }
   return { ok: true, value: headers };
