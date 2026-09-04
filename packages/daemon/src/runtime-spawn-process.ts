@@ -438,22 +438,7 @@ export function launchNative(
   }));
   child.unref();
   if (!persistence.callbackRelay) return observed;
-  const cleanupRelay = (): void => removeRuntimeCallbackRelay(persistence.rootDir, persistence.dispatchId);
-  return {
-    ...observed,
-    terminate: () => {
-      observed.terminate();
-      cleanupRelay();
-    },
-    terminateTree: async () => {
-      try {
-        await observed.terminateTree?.();
-      } finally {
-        cleanupRelay();
-      }
-    },
-    release: () => observed.release?.(),
-  };
+  return withRuntimeCallbackRelayCleanup(observed, persistence.rootDir, persistence.dispatchId);
 }
 
 export function adoptNativeProcess(
@@ -462,7 +447,36 @@ export function adoptNativeProcess(
   pid: number,
   skipPersistedOutputRecords = 0,
 ): RuntimeProcess {
-  return observeDispatchProcess(rootDir, dispatchId, pid, skipPersistedOutputRecords);
+  return withRuntimeCallbackRelayCleanup(
+    observeDispatchProcess(rootDir, dispatchId, pid, skipPersistedOutputRecords),
+    rootDir,
+    dispatchId,
+  );
+}
+
+function withRuntimeCallbackRelayCleanup(
+  observed: RuntimeProcess,
+  rootDir: string,
+  dispatchId: string,
+): RuntimeProcess {
+  const cleanupRelay = (): void => removeRuntimeCallbackRelay(rootDir, dispatchId);
+  return {
+    ...observed,
+    terminate: () => {
+      try {
+        observed.terminate();
+      } finally {
+        cleanupRelay();
+      }
+    },
+    terminateTree: async () => {
+      try {
+        await observed.terminateTree?.();
+      } finally {
+        cleanupRelay();
+      }
+    },
+  };
 }
 
 function observeDispatchProcess(

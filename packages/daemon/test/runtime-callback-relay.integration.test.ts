@@ -161,6 +161,91 @@ test(
 );
 
 test(
+  "cancellation after re-adoption removes only the adopted dispatch relay",
+  { skip: process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" || process.platform === "win32" },
+  async () => {
+    const parent = mkdtempSync(path.join(tmpdir(), "ha-callback-relay-adopt-cancel-")),
+      root = path.join(parent, "repo"),
+      userRoot = path.join(parent, "daemon-user"),
+      daemonId = "callback-relay-adopt-cancel",
+      dispatchId = "dispatch_0123456789abcdef01234567",
+      siblingDispatchId = "dispatch_abcdef0123456789abcdef01",
+      marker = path.join(parent, "provider-started"),
+      executablePath = writeProviderExecutable(
+        path.join(parent, "provider.mjs"),
+        `import fs from "node:fs"; fs.writeFileSync(${JSON.stringify(marker)}, "started"); process.on("SIGTERM", () => {}); setInterval(() => {}, 10);`,
+      );
+    mkdirSync(root, { recursive: true });
+    mkdirSync(userRoot, { recursive: true });
+    mkdirSync(path.join(root, ".harness", "runtime", "dispatches"), { recursive: true });
+    writeFileSync(path.join(root, ".harness", "runtime", "dispatches", `${dispatchId}.jsonl`), "");
+    const siblingRelayPath = path.join(root, ".harness", `r-${siblingDispatchId.slice("dispatch_".length)}.sock`);
+    writeFileSync(siblingRelayPath, "sibling");
+    const expectedEndpoint = localUserDaemonEndpoint(userRoot, daemonId),
+      privateEndpoint = `\0${path.basename(expectedEndpoint)}`,
+      route = { userRoot, daemonId, endpoint: privateEndpoint },
+      privateServer = net.createServer();
+    await listen(privateServer, privateEndpoint);
+    const spec = runtimeCallbackRelaySpec(root, dispatchId, route);
+    let runtime: ReturnType<typeof launchNative> | null = null;
+    try {
+      runtime = launchNative(
+        {
+          definition: {
+            schema: "agent-definition-snapshot/v1",
+            configVersion: 1,
+            instanceId: "codex-adopt-cancel",
+            installationId: "installation-codex-adopt-cancel",
+            kindId: "codex",
+            providerId: "openai",
+            model: "codex-model",
+            reasoningEffort: null,
+            baseUrl: null,
+            authMode: "subscription",
+          },
+          installation: {
+            installationId: "installation-codex-adopt-cancel",
+            kindId: "codex",
+            executablePath,
+            version: "1.0.0",
+            observedAt: "2026-09-05T00:00:00.000Z",
+          },
+          executablePath,
+          args: [],
+          env: {
+            HARNESS_DAEMON_USER_ROOT: userRoot,
+            HARNESS_DAEMON_ID: daemonId,
+            HARNESS_DAEMON_ENDPOINT: spec.path,
+            HARNESS_DAEMON_RELAY: "1",
+          },
+          cwd: root,
+          prompt: "",
+        },
+        { rootDir: root, dispatchId, callbackRelay: spec },
+      );
+      await eventuallyRelay(() => existsSync(marker) && existsSync(spec.path));
+      runtime.release?.();
+      assert.equal(existsSync(spec.path), true);
+      const adopted = adoptNativeProcess(root, dispatchId, runtime.pid);
+      try {
+        adopted.terminate();
+        assert.equal(existsSync(spec.path), false);
+        assert.equal(existsSync(siblingRelayPath), true);
+        await adopted.terminateTree?.();
+      } finally {
+        adopted.release?.();
+      }
+    } finally {
+      await runtime?.terminateTree?.();
+      await new Promise<void>((resolve) => privateServer.close(() => resolve()));
+      assert.equal(existsSync(spec.path), false);
+      assert.equal(existsSync(siblingRelayPath), true);
+      rmSync(parent, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
   "callback relay rejects mismatched, escaping, and symlinked routes",
   { skip: process.platform === "win32" },
   () => {
