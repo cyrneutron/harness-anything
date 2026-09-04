@@ -49,6 +49,7 @@ const daemonRuntimeScopedEnvironmentKeys = [
   "HARNESS_DAEMON_ID",
   "HARNESS_DAEMON_REPO_ID",
   "HARNESS_DAEMON_USER_ROOT",
+  "HARNESS_DAEMON_RELAY",
 ] as const;
 export function daemonServeEntry(): string {
   return realpathSync(

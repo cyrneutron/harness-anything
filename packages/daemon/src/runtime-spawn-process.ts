@@ -13,6 +13,7 @@ import {
   scrubProviderValue,
   type DispatchStreamWriter,
 } from "./dispatch-stream.ts";
+import { removeRuntimeCallbackRelay } from "./runtime-callback-relay.ts";
 import { runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import { parseProviderFrame } from "./runtime-spawn-provider-frames.ts";
 import type { ResumeProcessEvent, ResumeProcessObservation, RuntimeProcess } from "./runtime-spawn-types.ts";
@@ -392,7 +393,11 @@ export function childProcessErrorCode(error: unknown): string {
 
 export function launchNative(
   input: PreparedRuntimeLaunch,
-  persistence: { readonly rootDir: string; readonly dispatchId: string },
+  persistence: {
+    readonly rootDir: string;
+    readonly dispatchId: string;
+    readonly callbackRelay?: { readonly endpoint: string; readonly path: string };
+  },
 ): RuntimeProcess {
   const command = nativeCommand(input);
   const workerHost = import.meta.url.endsWith(".js")
@@ -420,11 +425,20 @@ export function launchNative(
     cwd: input.cwd,
     env: input.env,
     prompt: input.prompt,
+    ...(persistence.callbackRelay
+      ? {
+          callbackRelay: {
+            endpoint: persistence.callbackRelay.endpoint,
+            path: persistence.callbackRelay.path,
+          },
+        }
+      : {}),
     windowsVerbatimArguments:
       process.platform === "win32" && command.executablePath.toLowerCase().endsWith("cmd.exe"),
   }));
   child.unref();
-  return observed;
+  if (!persistence.callbackRelay) return observed;
+  return withRuntimeCallbackRelayCleanup(observed, persistence.rootDir, persistence.dispatchId);
 }
 
 export function adoptNativeProcess(
@@ -433,7 +447,36 @@ export function adoptNativeProcess(
   pid: number,
   skipPersistedOutputRecords = 0,
 ): RuntimeProcess {
-  return observeDispatchProcess(rootDir, dispatchId, pid, skipPersistedOutputRecords);
+  return withRuntimeCallbackRelayCleanup(
+    observeDispatchProcess(rootDir, dispatchId, pid, skipPersistedOutputRecords),
+    rootDir,
+    dispatchId,
+  );
+}
+
+function withRuntimeCallbackRelayCleanup(
+  observed: RuntimeProcess,
+  rootDir: string,
+  dispatchId: string,
+): RuntimeProcess {
+  const cleanupRelay = (): void => removeRuntimeCallbackRelay(rootDir, dispatchId);
+  return {
+    ...observed,
+    terminate: () => {
+      try {
+        observed.terminate();
+      } finally {
+        cleanupRelay();
+      }
+    },
+    terminateTree: async () => {
+      try {
+        await observed.terminateTree?.();
+      } finally {
+        cleanupRelay();
+      }
+    },
+  };
 }
 
 function observeDispatchProcess(
