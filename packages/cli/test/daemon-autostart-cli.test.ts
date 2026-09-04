@@ -25,6 +25,7 @@ import { localUserDaemonEndpoint } from "../../daemon/src/client/local-daemon-ta
 import { openDaemonLifecycleLog, readDaemonLifecycleRecords } from "../../daemon/src/lifecycle-log.ts";
 import { currentDaemonProtocolVersion } from "../../daemon/src/protocol/version.ts";
 import { readDaemonPid } from "../../daemon/src/runtime.ts";
+import { cliDaemonServeLaunch } from "../src/daemon/client.ts";
 import { seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
 import {
   canonicalEventWritePlan,
@@ -38,6 +39,17 @@ import {
 } from "../../kernel/src/index.ts";
 
 const cli = path.resolve("packages/cli/src/index.ts");
+
+test("resident daemon autostart strips the worker callback relay marker", () => {
+  const previous = process.env.HARNESS_DAEMON_RELAY;
+  process.env.HARNESS_DAEMON_RELAY = "1";
+  try {
+    assert.equal(cliDaemonServeLaunch("/daemon-user", "worker").env.HARNESS_DAEMON_RELAY, undefined);
+  } finally {
+    if (previous === undefined) delete process.env.HARNESS_DAEMON_RELAY;
+    else process.env.HARNESS_DAEMON_RELAY = previous;
+  }
+});
 
 test("registered workspace CLI command auto-starts the daemon, retries, and succeeds", () => {
   const fixture = setup();

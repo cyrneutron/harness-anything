@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
@@ -17,6 +17,13 @@ export interface LocalDaemonTarget {
   readonly userRoot: string;
   readonly daemonId: string;
   readonly socketPath: EndpointIdentity;
+}
+export interface LocalDaemonTargetInput {
+  readonly rootDir: string;
+  readonly repoIdOverride?: string;
+  readonly userRoot?: string;
+  readonly daemonId?: string;
+  readonly env?: NodeJS.ProcessEnv;
 }
 export function localUserDaemonEndpoint(
   userRoot = daemonUserRoot(),
@@ -50,22 +57,23 @@ export function resolveLocalDaemonEndpoint(input: {
   const endpoint = endpointIdentity(injected);
   // An enforced runtime changes TMPDIR, so a matching POSIX socket may live in a different
   // directory. Its basename still carries the hash of the sealed (userRoot, daemonId) pair.
-  if (process.platform !== "win32" ? path.basename(endpoint) === path.basename(expected) : endpoint === expected)
-    return endpoint;
+  const accepted =
+    env.HARNESS_DAEMON_RELAY === "1"
+      ? input.canonicalRoot !== undefined && isWorkspaceRelayEndpoint(endpoint, input.canonicalRoot)
+      : process.platform !== "win32"
+        ? path.basename(endpoint) === path.basename(expected)
+        : endpoint === expected;
+  if (accepted) return endpoint;
   const repoId = input.repoId ?? null,
     canonicalRoot = input.canonicalRoot ?? null;
   const nextAction = `Daemon target conflict: injected target endpoint=${JSON.stringify(endpoint)} userRoot=${JSON.stringify(userRoot)} daemonId=${JSON.stringify(daemonId)} repoId=${JSON.stringify(repoId)} canonicalRoot=${JSON.stringify(canonicalRoot)}; resolved registry target endpoint=${JSON.stringify(expected)} userRoot=${JSON.stringify(userRoot)} daemonId=${JSON.stringify(daemonId)} repoId=${JSON.stringify(repoId)} canonicalRoot=${JSON.stringify(canonicalRoot)}. Unset HARNESS_DAEMON_ENDPOINT to use the resolved registry target, or restore the original HARNESS_DAEMON_USER_ROOT and HARNESS_DAEMON_ID before retrying.`;
   throw Object.assign(new Error(nextAction), { code: "daemon_target_conflict", nextAction });
 }
-export function resolveLocalDaemonTarget(input: {
-  readonly rootDir: string;
-  readonly repoIdOverride?: string;
-  readonly userRoot?: string;
-  readonly daemonId?: string;
-  readonly env?: NodeJS.ProcessEnv;
-}): LocalDaemonTarget {
+export function resolveLocalDaemonTarget(input: LocalDaemonTargetInput): LocalDaemonTarget {
   const env = input.env ?? process.env,
-    userRoot = path.resolve(input.userRoot ?? daemonUserRoot(env));
+    relayTarget = resolveWorkspaceRelayTarget(input, env);
+  if (relayTarget) return relayTarget;
+  const userRoot = path.resolve(input.userRoot ?? daemonUserRoot(env));
   const daemonId = input.daemonId ?? daemonIdFromEnv(env),
     repos = readRegisteredRepos(userRoot);
   const requested = input.repoIdOverride ?? env.HARNESS_DAEMON_REPO_ID;
@@ -97,6 +105,22 @@ export function resolveLocalDaemonTarget(input: {
     socketPath,
   };
 }
+
+function resolveWorkspaceRelayTarget(input: LocalDaemonTargetInput, env: NodeJS.ProcessEnv): LocalDaemonTarget | null {
+  if (env.HARNESS_DAEMON_RELAY !== "1") return null;
+  const repoId = input.repoIdOverride ?? env.HARNESS_DAEMON_REPO_ID,
+    endpoint = env.HARNESS_DAEMON_ENDPOINT?.trim();
+  if (!repoId || !endpoint)
+    throw Object.assign(new Error("daemon_relay_target_required"), {
+      code: "daemon_target_conflict",
+      params: { endpoint: endpoint ?? null, repoId: repoId ?? null },
+    });
+  const canonicalRoot = bindCanonicalRoot(env.HARNESS_CANONICAL_ROOT ?? input.rootDir),
+    userRoot = path.join(canonicalRoot, ".harness", "relay-client"),
+    daemonId = "relay",
+    socketPath = resolveLocalDaemonEndpoint({ userRoot, daemonId, env, repoId, canonicalRoot });
+  return { repoId: workspaceId(repoId), canonicalRoot, userRoot, daemonId, socketPath };
+}
 export function readRegisteredRepos(userRoot: string): readonly {
   readonly repoId: string;
   readonly canonicalRoot: string;
@@ -127,4 +151,18 @@ function safeDaemonId(value: string): string {
 }
 function unixEndpoint(id: string): string {
   return path.join(os.tmpdir(), "harness-anything", `daemon-${process.getuid?.() ?? 0}-${safeDaemonId(id)}.sock`);
+}
+
+function isWorkspaceRelayEndpoint(endpoint: string, rootDir: string): boolean {
+  const root = path.resolve(rootDir),
+    relative = path.relative(root, path.resolve(endpoint)),
+    parts = relative.split(path.sep);
+  if (parts.length !== 2 || parts[0] !== ".harness" || !/^r-[a-f0-9]{24}\.sock$/u.test(parts[1] ?? "")) return false;
+  let current = root;
+  for (const part of parts) {
+    current = path.join(current, part);
+    const info = lstatSync(current, { throwIfNoEntry: false });
+    if (info?.isSymbolicLink()) return false;
+  }
+  return true;
 }

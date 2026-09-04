@@ -31,6 +31,11 @@ import {
 import { unknownFieldViolation, type JsonObject } from "./protocol/json-rpc-types.ts";
 import { runtimeKindForId } from "./runtime-inventory.ts";
 import { runtimePermissionMode } from "./runtime-permissions.ts";
+import {
+  isSealedRuntimeDaemonRoute,
+  removeRuntimeCallbackRelay,
+  runtimeCallbackRelaySpec,
+} from "./runtime-callback-relay.ts";
 import { cancelRuntime, closeRuntimes } from "./runtime-spawn-control.ts";
 import { createActiveRuntime, attachActiveRuntime } from "./runtime-spawn-active.ts";
 import { adoptRuntimes } from "./runtime-spawn-adoption.ts";
@@ -304,29 +309,6 @@ export function makeRuntimeSpawner(input: {
       };
     }
     const runtimeActor = `agent:runtime-session:${runtimeSessionId}`,
-      selfContainedMission =
-        taskMission && daemonRoute
-          ? assembleTaskMission({
-              mission,
-              repoId: input.repoId,
-              canonicalRoot: input.rootDir,
-              workerRoot: cwd,
-              taskPackageRoot: taskMission.packageRoot,
-              daemonRoute,
-              runtimeActor,
-            })
-          : trustedSchedule && daemonRoute
-            ? assembleScheduledMission({
-                mission,
-                repoId: input.repoId,
-                canonicalRoot: input.rootDir,
-                workerRoot: cwd,
-                scheduleId: trustedSchedule.scheduleId,
-                claimFence: trustedSchedule.claimFence,
-                daemonRoute,
-                runtimeActor,
-              })
-            : mission,
       squad =
         squadId || targetAgentId
           ? (input.resolveSquadDispatch?.(squadId, agentId!, targetAgentId) ??
@@ -372,9 +354,6 @@ export function makeRuntimeSpawner(input: {
         inheritedFallback ??
         initialFallbackAttempt(agent, explicitRuntimeInstanceId, model, providerSessionId, idempotencyKey, mission),
       fallbackCandidate = fallbackAttempt?.candidates[fallbackAttempt.attemptIndex],
-      prompt = agent
-        ? assembleAgentPrompt(agent, selfContainedMission ?? mission, preset, resolvedSkills)
-        : (selfContainedMission ?? mission),
       selectedModel = fallbackCandidate?.model ?? model ?? agent?.model ?? undefined,
       runtimeSessions = input.remote ? await input.remote.readRuntimeSessions() : projection!.readRuntimeSessions(),
       runtimeInstanceId = await resolveRuntimeInstanceId({
@@ -385,10 +364,46 @@ export function makeRuntimeSpawner(input: {
         instances: input.runtimeInstances?.() ?? [],
         sessions: runtimeSessions,
       }),
-      configuredPermissionMode =
-        input.runtimeInstances?.().find((instance) => instance.instanceId === runtimeInstanceId)?.permissionMode ??
-        undefined,
+      runtimeInstance = input.runtimeInstances?.().find((instance) => instance.instanceId === runtimeInstanceId),
+      configuredPermissionMode = runtimeInstance?.permissionMode ?? undefined,
       effectivePermissionMode = permissionMode ?? configuredPermissionMode,
+      callbackRelay =
+        globalThis.process?.platform !== "win32" &&
+        daemonRoute &&
+        isSealedRuntimeDaemonRoute(daemonRoute) &&
+        runtimeInstance?.kindId === "codex" &&
+        runtimeInstance.isolationState === "enforced" &&
+        effectivePermissionMode === "workspace-write"
+          ? runtimeCallbackRelaySpec(input.rootDir, newDispatchId, daemonRoute)
+          : undefined,
+      missionDaemonRoute =
+        callbackRelay && daemonRoute ? { userRoot: "", daemonId: "", endpoint: callbackRelay.path } : daemonRoute,
+      selfContainedMission =
+        taskMission && daemonRoute
+          ? assembleTaskMission({
+              mission,
+              repoId: input.repoId,
+              canonicalRoot: input.rootDir,
+              workerRoot: cwd,
+              taskPackageRoot: taskMission.packageRoot,
+              daemonRoute: missionDaemonRoute!,
+              runtimeActor,
+            })
+          : trustedSchedule && daemonRoute
+            ? assembleScheduledMission({
+                mission,
+                repoId: input.repoId,
+                canonicalRoot: input.rootDir,
+                workerRoot: cwd,
+                scheduleId: trustedSchedule.scheduleId,
+                claimFence: trustedSchedule.claimFence,
+                daemonRoute: missionDaemonRoute!,
+                runtimeActor,
+              })
+            : mission,
+      prompt = agent
+        ? assembleAgentPrompt(agent, selfContainedMission ?? mission, preset, resolvedSkills)
+        : (selfContainedMission ?? mission),
       prepared = await input.prepareLaunch(runtimeInstanceId, {
         cwd,
         prompt,
@@ -417,6 +432,7 @@ export function makeRuntimeSpawner(input: {
       );
     if (
       definition.instanceId !== runtimeInstanceId ||
+      (runtimeInstance !== undefined && runtimeInstance.kindId !== definition.kindId) ||
       definition.installationId !== installation.installationId ||
       definition.kindId !== installation.kindId ||
       prepared.executablePath !== installation.executablePath ||
@@ -457,7 +473,8 @@ export function makeRuntimeSpawner(input: {
                 .join(path.delimiter),
               HARNESS_DAEMON_USER_ROOT: daemonRoute.userRoot,
               HARNESS_DAEMON_ID: daemonRoute.daemonId,
-              HARNESS_DAEMON_ENDPOINT: daemonRoute.endpoint,
+              HARNESS_DAEMON_ENDPOINT: callbackRelay?.path ?? daemonRoute.endpoint,
+              HARNESS_DAEMON_RELAY: callbackRelay ? "1" : undefined,
               HARNESS_DAEMON_REPO_ID: input.repoId,
               HARNESS_ACTOR: runtimeActor,
               ...(taskId ? { HARNESS_TASK_BOUND: "1" } : {}),
@@ -514,15 +531,23 @@ export function makeRuntimeSpawner(input: {
             }
           : {}),
       }));
+    const cleanupCallbackRelay = (): void => {
+      if (callbackRelay) removeRuntimeCallbackRelay(input.rootDir, newDispatchId);
+    };
     if (providerSessionId)
       try {
         openStream();
-        process = launch(workerLaunch, { rootDir: input.rootDir, dispatchId: newDispatchId });
+        process = launch(workerLaunch, {
+          rootDir: input.rootDir,
+          dispatchId: newDispatchId,
+          ...(callbackRelay ? { callbackRelay } : {}),
+        });
         resumeObservation = observeResumeProcess(process, definition.kindId, providerSessionId);
         await resumeObservation.ready;
       } catch (error) {
         process?.terminate();
         process?.release?.();
+        cleanupCallbackRelay();
         removeDispatchStream(input.rootDir, newDispatchId);
         if (runtimeErrorCode(error) === "runtime_resume_failed") throw error;
         consumeKnownError(error);
@@ -565,6 +590,7 @@ export function makeRuntimeSpawner(input: {
     } catch (error) {
       process?.terminate();
       process?.release?.();
+      cleanupCallbackRelay();
       if (stream) removeDispatchStream(input.rootDir, newDispatchId);
       throw error;
     }
@@ -589,14 +615,20 @@ export function makeRuntimeSpawner(input: {
     } catch (error) {
       process?.terminate();
       process?.release?.();
+      cleanupCallbackRelay();
       if (stream) removeDispatchStream(input.rootDir, newDispatchId);
       throw error;
     }
     if (!process)
       try {
         openStream();
-        process = launch(workerLaunch, { rootDir: input.rootDir, dispatchId: newDispatchId });
+        process = launch(workerLaunch, {
+          rootDir: input.rootDir,
+          dispatchId: newDispatchId,
+          ...(callbackRelay ? { callbackRelay } : {}),
+        });
       } catch (error) {
+        cleanupCallbackRelay();
         removeDispatchStream(input.rootDir, newDispatchId);
         await publishRuntimeEvent(
           "runtime_dispatch_outcome_unknown",
