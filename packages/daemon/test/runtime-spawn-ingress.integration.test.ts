@@ -195,6 +195,51 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
         true,
       );
     });
+    await t.test("enforced Codex read-only task runtimes receive a callback relay", async () => {
+      const taskId = "task-runtime-read-only-relay",
+        executionId = "exec-runtime-read-only-relay",
+        executor = { kind: "agent", id: "codex-read-only" } as const;
+      host.runtimeInstance(
+        "daemon.runtimeInstance.create",
+        {
+          instanceId: "codex-read-only-relay",
+          name: "Codex read-only relay",
+          kindId: "codex",
+          installationId: ingressInstallation.installationId,
+          providerId: "openai",
+          models: [ingressDefinition.model],
+          codex: { reasoningEffort: ingressDefinition.reasoningEffort },
+          authMode: ingressDefinition.authMode,
+          permissionMode: "read-only",
+          isolationState: "enforced",
+        },
+        auth,
+      );
+      assert.equal(
+        (await host.run(repoId, { kind: "task-create", taskId, title: "Read-only callback relay" }, auth)).outcome,
+        "applied",
+      );
+      assert.equal(
+        (await host.run(repoId, { kind: "task-start", taskId, executionId, executor }, auth)).outcome,
+        "applied",
+      );
+      const receipt = await rpc(host, auth, "repo.agentRuntime.spawn", {
+        repo: { repoId },
+        payload: {
+          runtimeInstanceId: "codex-read-only-relay",
+          cwd: { scope: "repo-root" },
+          prompt: "Inspect without writes.",
+          taskId,
+          idempotencyKey: "read-only-callback-relay",
+          executor,
+        },
+      });
+      assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+      assert.equal(launchedEnv?.HARNESS_DAEMON_RELAY, "1");
+      assert.match(String(launchedEnv?.HARNESS_DAEMON_ENDPOINT), /[\\/]\.harness[\\/]r-[a-f0-9]{24}\.sock$/u);
+      assert.doesNotMatch(String(launchedEnv?.HARNESS_DAEMON_ENDPOINT), /harness-anything/u);
+      assert.ok(launchedPrompt.includes(`Daemon endpoint: ${launchedEnv?.HARNESS_DAEMON_ENDPOINT}`));
+    });
     await t.test("dispatcher can hand off a task held by another executor", async () => {
       const taskId = "task-runtime-dispatcher-handoff",
         executionId = "exec-runtime-dispatcher-handoff",
