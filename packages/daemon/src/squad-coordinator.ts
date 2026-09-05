@@ -528,6 +528,7 @@ export function makeSquadCoordinator(input: {
     const attemptId = `worker-${state.workerAttempts.length + 1}`;
     try {
       await input.reacquireTaskLease(state.taskId, state.binding);
+      const permissionMode = state.permissionMode === "bypass" ? "read-only" : (state.permissionMode ?? "read-only");
       const receipt = await input.runtimeSpawner().spawn(
           {
             agentId: state.leaderAgentId,
@@ -536,7 +537,7 @@ export function makeSquadCoordinator(input: {
             cwd: cwdPayload(input.rootDir, state.cwd),
             taskId: state.taskId,
             ...(state.effort ? { effort: state.effort } : {}),
-            ...(state.permissionMode ? { permissionMode: state.permissionMode } : {}),
+            permissionMode,
             idempotencyKey: `${state.squadRunId}:${leaderTurnId}:${attemptId}`,
           },
           state.binding,

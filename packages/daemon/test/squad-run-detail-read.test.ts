@@ -18,7 +18,17 @@ const LEADER_RESULT_SHA = "a".repeat(64),
 
 /** 与 production writeState 同构地种一个 run:leader-1 在跑(decision 未解析),
  * 归档结算行携带 outcome/resultRef,receipt 原文落在内容包里。 */
-function seedRunningSquadRun(rootDir: string, squadRunId: string): void {
+function seedRunningSquadRun(
+  rootDir: string,
+  squadRunId: string,
+  permissionMode?: "bypass" | "workspace-write" | "read-only",
+  options: {
+    readonly currentLeaderRuntimeSessionId?: string | null;
+    readonly pendingLeaderTriggers?: readonly Readonly<Record<string, unknown>>[];
+  } = {},
+): void {
+  const currentLeaderRuntimeSessionId =
+    options.currentLeaderRuntimeSessionId === undefined ? "runtime-leader" : options.currentLeaderRuntimeSessionId;
   openDispatchStream(rootDir, {
     dispatchId: "dispatch_00000000000000000000a1b2",
     taskId: "task-squad",
@@ -26,6 +36,7 @@ function seedRunningSquadRun(rootDir: string, squadRunId: string): void {
     runtimeSessionId: "runtime-leader",
     instanceId: "instance-squad",
     startedAt: "2026-08-27T11:00:00.000Z",
+    ...(permissionMode === undefined ? {} : { permissionMode }),
   });
   appendRuntimeWorkerRecord(rootDir, "dispatch_00000000000000000000a1b2", {
     kind: "squad_run_state",
@@ -42,6 +53,7 @@ function seedRunningSquadRun(rootDir: string, squadRunId: string): void {
       mission: "fan-out witness",
       model: null,
       effort: null,
+      ...(permissionMode === undefined ? {} : { permissionMode }),
       leaderAgentId: "terra",
       roster: "terra -> sol",
       workers: ["sol"],
@@ -57,12 +69,12 @@ function seedRunningSquadRun(rootDir: string, squadRunId: string): void {
         },
       ],
       leaderProviderSessionId: null,
-      currentLeaderRuntimeSessionId: "runtime-leader",
+      currentLeaderRuntimeSessionId,
       workerAttempts: [],
       observedWorkerRuntimeSessionIds: [],
       workerWaits: [],
-      pendingLeaderTriggers: [],
-      phase: "leader_running",
+      pendingLeaderTriggers: options.pendingLeaderTriggers ?? [],
+      phase: currentLeaderRuntimeSessionId === null ? "planning" : "leader_running",
       revision: 2,
       error: null,
     },
@@ -161,7 +173,7 @@ function projectionWith(archives: ReadonlyMap<string, Record<string, unknown>>):
 
 function coordinator(
   rootDir: string,
-  options: { readonly receiptBlob: Uint8Array | null } = { receiptBlob: new TextEncoder().encode(LEADER_RESULT) },
+  options: { readonly receiptBlob?: Uint8Array | null; readonly spawnPayloads?: JsonObject[] } = {},
 ) {
   // 投影必须是稳定实例:coordinator 的 upsertSquadRun memo 落在同一个 rows 上。
   const projection = projectionWith(new Map([["dispatch_00000000000000000000a1b2", leaderArchive()]]));
@@ -170,16 +182,24 @@ function coordinator(
     projection: () => projection,
     store: () =>
       ({
-        readContentBlob: (sha256: string) => (sha256 === LEADER_RESULT_SHA ? options.receiptBlob : null),
+        readContentBlob: (sha256: string) =>
+          sha256 === LEADER_RESULT_SHA
+            ? options.receiptBlob === undefined
+              ? new TextEncoder().encode(LEADER_RESULT)
+              : options.receiptBlob
+            : null,
       }) as unknown as CanonicalEventStore,
     reacquireTaskLease: async () => undefined,
     publishSynthesisReport: async () => undefined,
     runtimeSpawner: () => ({
-      spawn: async (): Promise<JsonObject> => ({
-        ok: true,
-        dispatchId: "dispatch_00000000000000000000b2c3",
-        runtimeSessionId: "runtime-worker-1",
-      }),
+      spawn: async (payload): Promise<JsonObject> => {
+        options.spawnPayloads?.push(payload);
+        return {
+          ok: true,
+          dispatchId: "dispatch_00000000000000000000b2c3",
+          runtimeSessionId: "runtime-worker-1",
+        };
+      },
       cancel: async (): Promise<JsonObject> => ({ ok: true, outcome: "applied" }),
     }),
   });
@@ -212,6 +232,48 @@ test("a settled leader turn carries its receipt verbatim and its dispatches link
     assert.equal(detail.run.workerAttempts[0]?.workerId, "sol");
     assert.equal(detail.run.workerAttempts[0]?.runtimeSessionId, "runtime-worker-1");
     assert.deepEqual(validateSquadRunRead(detail), []);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("a bypass Leader keeps its permission while Worker dispatch is read-only", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-squad-permission-")),
+    spawnPayloads: JsonObject[] = [];
+  try {
+    seedRunningSquadRun(rootDir, "squad_0123456789abcdef01234567", "bypass");
+    const squad = coordinator(rootDir, { spawnPayloads });
+    await squad.observeOutcome(leaderOutcome("runtime-leader"));
+    assert.equal(spawnPayloads[0]?.permissionMode, "read-only");
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("a non-bypass Squad permission remains explicit for Worker dispatch", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-squad-permission-")),
+    spawnPayloads: JsonObject[] = [];
+  try {
+    seedRunningSquadRun(rootDir, "squad_0123456789abcdef01234567", "workspace-write");
+    const squad = coordinator(rootDir, { spawnPayloads });
+    await squad.observeOutcome(leaderOutcome("runtime-leader"));
+    assert.equal(spawnPayloads[0]?.permissionMode, "workspace-write");
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("a bypass Squad permission is retained for a Leader retry", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-squad-permission-")),
+    spawnPayloads: JsonObject[] = [];
+  try {
+    seedRunningSquadRun(rootDir, "squad_0123456789abcdef01234567", "bypass", {
+      currentLeaderRuntimeSessionId: null,
+      pendingLeaderTriggers: [{ kind: "leader_retry", turnId: "leader-1", reason: "retry" }],
+    });
+    const squad = coordinator(rootDir, { spawnPayloads });
+    await squad.reconcile();
+    assert.equal(spawnPayloads[0]?.permissionMode, "bypass");
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
