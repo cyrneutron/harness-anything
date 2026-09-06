@@ -146,9 +146,10 @@ export async function proofFor(
           ? [
               "Execution Review requires a reviewer independent of the submitter: the ",
               "submitted execution's original start declared no executor, so only a ",
-              "different person can review it. Run ha task declare-executor with that ",
-              "principal and an agent executor to record an auditable recovery before ",
-              "same-person review.",
+              "different person can review it. For an auditable same-principal review, ",
+              "run with HARNESS_ACTOR=agent:<id>; this is the reachable dispatch-less ",
+              "review path. `ha task declare-executor` requires an existing dispatch ",
+              "record and is not available for this execution.",
             ].join("")
           : [
               "Execution Review requires a reviewer independent of the submitting executor; ",
