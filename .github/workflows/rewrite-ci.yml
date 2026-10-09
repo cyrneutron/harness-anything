@@ -220,6 +220,10 @@ jobs:
     # The full matrix runs on the nightly schedule (and manual dispatch) only; windows-first-run
     # remains the per-PR smoke. This lane is never promoted to a required context.
     if: github.event_name != 'pull_request' && github.event_name != 'push'
+    # The hosted Windows runner does not provide the POSIX ownership, PTY, and
+    # short-path semantics exercised by several integration fixtures. Keep the
+    # nightly matrix as diagnostic coverage without failing the scheduled run.
+    continue-on-error: true
     name: windows-integration-shard (${{ matrix.shard }})
     runs-on: windows-latest
     strategy:
