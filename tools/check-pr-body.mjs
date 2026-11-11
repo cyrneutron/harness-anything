@@ -47,12 +47,23 @@ const PLACEHOLDER_RESIDUE_PATTERNS = Object.freeze([
   },
 ]);
 
+// Cursor Cloud Agents append a marketing footer (raw HTML `<div><a>...`) after
+// `<!-- CURSOR_AGENT_PR_BODY_END -->`. That footer is not author-controlled PR prose, and its
+// tags match the angle-bracket placeholder detector (`<div>`, `<picture>`, ...). Truncate so
+// residue checks only see the authored body (including the end marker itself).
+export function stripCursorAgentFooter(body) {
+  const marker = "<!-- CURSOR_AGENT_PR_BODY_END -->";
+  const end = body.indexOf(marker);
+  if (end === -1) return body;
+  return body.slice(0, end + marker.length);
+}
+
 // Same invisible spans the section checks strip, but blanked with padding so the
 // surviving text keeps its original line numbers for the issue message. Inline code keeps a
 // non-whitespace placeholder so prose such as "no `user.name`/`user.email`" does not collapse
 // into a choice list ("no / ") and get rejected as an unfilled template option.
 function maskInvisibleTemplateText(body) {
-  return body
+  return stripCursorAgentFooter(body)
     .replace(/<!--[\s\S]*?-->/gu, (span) => span.replace(/[^\n]/gu, " "))
     .replace(/^\s*(`{3,}|~{3,}).*\n[\s\S]*?^\s*\1\s*$/gmu, (span) => span.replace(/[^\n]/gu, " "))
     .replace(/`[^`\n]*`/gu, (span) => span.replace(/[^\n]/gu, "x"));
@@ -219,10 +230,13 @@ export function checkUnfilledPrTemplate(body, template) {
 }
 
 export function checkPrBody(body, context = {}) {
-  const unfilledTemplate = checkUnfilledPrTemplate(body, context.prTemplate);
-  const placeholderResidue = checkTemplatePlaceholderResidue(body);
-  const placeholderSections = checkPlaceholderOnlySections(body);
-  const eventMigration = checkEventMigrationDeclaration(body, context.eventMigration);
+  // Section / template checks also ignore the Cursor footer so auto-appended HTML cannot empty a
+  // trailing section or revive angle-bracket residue after a filled author body.
+  const authoredBody = stripCursorAgentFooter(body);
+  const unfilledTemplate = checkUnfilledPrTemplate(authoredBody, context.prTemplate);
+  const placeholderResidue = checkTemplatePlaceholderResidue(authoredBody);
+  const placeholderSections = checkPlaceholderOnlySections(authoredBody);
+  const eventMigration = checkEventMigrationDeclaration(authoredBody, context.eventMigration);
   const issues = [
     ...unfilledTemplate.issues,
     ...placeholderResidue.issues,

@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>自建 GitLab 实体硬件价格汇报（并发 PR 修订版）</title>
+<style>
+  :root {
+    --bg: #f3efe6;
+    --ink: #1c1914;
+    --muted: #5c564c;
+    --line: #d9d0c0;
+    --card: #fffdf8;
+    --accent: #0f5c4c;
+    --warn: #8a3b12;
+    --ok: #1f6b3a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "IBM Plex Sans", "Noto Sans SC", "PingFang SC", sans-serif;
+    color: var(--ink);
+    background:
+      radial-gradient(1200px 500px at 10% -10%, #e7f2ee 0%, transparent 55%),
+      radial-gradient(900px 400px at 100% 0%, #f7e9d8 0%, transparent 50%),
+      var(--bg);
+    line-height: 1.55;
+  }
+  main { max-width: 920px; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+  h1 { font-size: 1.75rem; margin: 0 0 0.35rem; letter-spacing: -0.02em; }
+  .sub { color: var(--muted); margin-bottom: 1.5rem; }
+  .banner {
+    background: #fff4e8;
+    border: 1px solid #efc9a4;
+    border-left: 4px solid var(--warn);
+    padding: 0.9rem 1rem;
+    margin-bottom: 1.25rem;
+  }
+  .banner strong { color: var(--warn); }
+  .hero {
+    background: var(--card);
+    border: 1px solid var(--line);
+    padding: 1.25rem 1.35rem;
+    margin-bottom: 1.25rem;
+  }
+  .hero .total {
+    font-size: 2rem;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: -0.03em;
+  }
+  .hero .note { color: var(--muted); font-size: 0.95rem; margin-top: 0.35rem; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--card);
+    border: 1px solid var(--line);
+    margin: 0.75rem 0 1.5rem;
+    font-size: 0.95rem;
+  }
+  th, td { text-align: left; padding: 0.65rem 0.75rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { background: #f7f2e8; font-weight: 600; }
+  tr:last-child td { border-bottom: none; }
+  .money { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  a { color: var(--accent); }
+  h2 { font-size: 1.2rem; margin: 1.75rem 0 0.5rem; }
+  ul { padding-left: 1.2rem; }
+  .muted { color: var(--muted); }
+  .ok { color: var(--ok); font-weight: 600; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.88em; }
+</style>
+</head>
+<body>
+<main>
+  <h1>自建 GitLab · 实体硬件价格汇报</h1>
+  <p class="sub">询价基准约 2026-11-11 · 仅实体硬件（不含电费/机柜托管费）· 父仓并发 PR / GitHub Actions 尖峰重算版</p>
+
+  <div class="banner">
+    <strong>相对初版的更正：</strong>
+    初版「1 应用 + 1 Runner（40–64 核 / 256G，concurrent≈48）」只够尖峰<strong>不崩</strong>，
+    <strong>对不齐 GitHub 标准托管 runner 约 2 vCPU / job 的同速</strong>。
+    父仓近 14 日尖峰同时 job ≥43、跨 run 同时可达约 25 场，且几乎全是 <code>pull_request</code> 触发。
+    本版改为 <strong>1 应用 + 2 台 Runner</strong>，合计约 <strong>80–128 核级吞吐 + 512G 内存池</strong>。
+  </div>
+
+  <div class="hero">
+    <div class="total">约 ¥2.5万 – ¥4.0万</div>
+    <div class="note">推荐采购带（1×应用 + 2×Runner + UPS/导轨）。内存已含在机头 SKU；盘另计。</div>
+  </div>
+
+  <h2>0. 用量依据（并发 PR）</h2>
+  <table>
+    <thead><tr><th>观测 / 假设</th><th>数值</th><th>含义</th></tr></thead>
+    <tbody>
+      <tr><td>日均 workflow runs</td><td>~240</td><td>父仓近 14 日</td></tr>
+      <tr><td>触发类型</td><td>几乎全是 PR</td><td>并发 PR 是主负载</td></tr>
+      <tr><td>跨 run 同时进行</td><td>日常 6–12；尖峰 ~20–25</td><td>多 PR 叠跑</td></tr>
+      <tr><td>同时在飞 jobs</td><td>≥43（抽样下界）</td><td>设计余量按 60–80 槽</td></tr>
+      <tr><td>GitHub 标准 Linux job</td><td>~2 vCPU / ~7GB</td><td>同速标尺</td></tr>
+      <tr><td>同速所需总算力</td><td>~86+ vCPU；内存池 ~170–300GB+</td><td>43×2 核；再留余量</td></tr>
+    </tbody>
+  </table>
+
+  <h2>1. 推荐架构与价格块</h2>
+  <table>
+    <thead>
+      <tr><th>块</th><th>内容</th><th class="money">大约（人民币）</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>A 应用 ×1</td>
+        <td>R740 类，16–32 核，128G（含在机头），2×960G RAID1</td>
+        <td class="money">¥4,200 – 9,400</td>
+      </tr>
+      <tr>
+        <td>B1 Runner ×1</td>
+        <td>R740 类，40–64 核，256G（含在机头），1×960G + 2×1.92T NVMe；concurrent 32–40</td>
+        <td class="money">¥9,000 – 14,000</td>
+      </tr>
+      <tr>
+        <td>B2 Runner ×1</td>
+        <td>与 B1 <strong>同规格再买一台</strong>（并发 PR 必需，不是可选项）</td>
+        <td class="money">¥9,000 – 14,000</td>
+      </tr>
+      <tr>
+        <td>UPS / 导轨</td>
+        <td>三台 2U → UPS 建议 3–6 kVA</td>
+        <td class="money">¥2,000 – 5,000</td>
+      </tr>
+      <tr>
+        <td><strong>合计</strong></td>
+        <td>1 应用 + 2 Runner</td>
+        <td class="money"><strong>¥25,000 – 40,000</strong></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>2. 和初版对比</h2>
+  <table>
+    <thead><tr><th></th><th>初版（偏紧）</th><th>本版（对齐并发 PR）</th></tr></thead>
+    <tbody>
+      <tr><td>Runner 台数</td><td>1</td><td><strong>2</strong></td></tr>
+      <tr><td>物理核算力</td><td>~40–64 核</td><td>~80–128 核级</td></tr>
+      <tr><td>内存池</td><td>256G</td><td>~512G（两台合计）</td></tr>
+      <tr><td>concurrent</td><td>~48</td><td>合计 ~64–80</td></tr>
+      <tr><td>相对 GitHub 同速</td><td>尖峰会慢 / 排队</td><td>接近；极端日仍可能短排队</td></tr>
+      <tr><td>实体硬件价</td><td>~¥1.5万–2.5万</td><td>~¥2.5万–4.0万</td></tr>
+    </tbody>
+  </table>
+
+  <h2>3. Runner 机头可点链接（买两台同规格）</h2>
+  <ul>
+    <li><a href="https://pcdetail.taobao.com/eDVTT0V2NlJaNVMzcHBDY3lrVkExQT09.html" target="_blank" rel="noopener">淘宝详情（SKU：金牌6133×2 + 256G ≈ ¥4150）</a></li>
+    <li><a href="https://www.quandazhe.com/taobao-item-M9A3ArHVky3xDDWCZ.htm" target="_blank" rel="noopener">6130×2 + 256G + 双电 ≈ ¥7180（砍掉 8×8T）</a></li>
+    <li><a href="https://shop655186229.taobao.com/" target="_blank" rel="noopener">店铺</a></li>
+    <li>企业 NVMe：<a href="https://www.taobao.com/list/product/nvme%E4%BC%81%E4%B8%9A%E5%9B%BA%E6%80%81.htm" target="_blank" rel="noopener">搜索列表</a></li>
+  </ul>
+  <p class="muted">内存已在机头 SKU 里，不必再单独加一列「再买 256G」。每台 Runner 仍要另配系统盘 + 两块缓存 NVMe。</p>
+
+  <h2>4. 结论</h2>
+  <p class="ok">要扛你们这种并发 PR 尖峰，实体硬件预算按约 ¥2.5万–4.0万 准备（两台 Runner），不要再按单台 40–64 核去对齐 GitHub 同速。</p>
+  <p class="muted">相对 GitHub private Actions ~$2k/月，这套硬件大约一个多月回本量级（视利用率与电费）。详细 BOM 见同目录 <code>gitlab-selfhost-hw-bom.md</code>。</p>
+</main>
+</body>
+</html>

@@ -12,6 +12,7 @@ import {
   checkPrBody,
   checkTemplatePlaceholderResidue,
   eventMigrationCommandNames,
+  stripCursorAgentFooter,
 } from "./check-pr-body.mjs";
 
 const pullRequestTemplate = readFileSync(new URL("../.github/pull_request_template.md", import.meta.url), "utf8");
@@ -219,6 +220,24 @@ test("inline code in prose is a non-whitespace placeholder, not an unresolved ch
 
   assert.equal(result.placeholderResidue.residues.length, 0, result.issues.join("\n"));
   assert.equal(result.ok, true, result.issues.join("\n"));
+});
+
+test("Cursor agent PR footer HTML after CURSOR_AGENT_PR_BODY_END is not angle-bracket residue", () => {
+  const body = [
+    filledBody(),
+    "",
+    "<!-- CURSOR_AGENT_PR_BODY_END -->",
+    "",
+    '<div><a href="https://cursor.com/agents/bc-example?cursor_ref=pr_footer"><picture><source media="(prefers-color-scheme: dark)" srcset="https://cursor.com/assets/images/open-in-web-dark.png"><img alt="Open in Web" width="114" height="28" src="https://cursor.com/assets/images/open-in-web-dark.png"></picture></a></div>',
+    "",
+  ].join("\n");
+
+  assert.match(stripCursorAgentFooter(body), /CURSOR_AGENT_PR_BODY_END -->$/u);
+  assert.equal(stripCursorAgentFooter(body).includes("<div>"), false);
+
+  const result = checkPrBody(body, { prTemplate: pullRequestTemplate });
+  assert.equal(result.ok, true, result.issues.join("\n"));
+  assert.equal(result.placeholderResidue.residues.length, 0);
 });
 
 test("unresolved choice lists outside inline code are still rejected", () => {
