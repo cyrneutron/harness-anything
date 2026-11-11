@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>公司自建 GitLab · 实体硬件采购价格汇报</title>
+  <style>
+    :root {
+      --bg: #f3f0ea;
+      --paper: #fffdf8;
+      --ink: #1c1a17;
+      --muted: #5c574e;
+      --line: #d9d2c4;
+      --accent: #0b5f4b;
+      --accent-soft: #e4f2ed;
+      --warn: #8a4b12;
+      --warn-bg: #fff1e0;
+      --ok: #1f6b3a;
+      --card: #ffffff;
+      --shadow: 0 10px 30px rgba(40, 30, 10, 0.06);
+      --mono: "IBM Plex Mono", "SFMono-Regular", ui-monospace, Menlo, Consolas, monospace;
+      --sans: "Source Han Sans SC", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+      --display: "Source Han Serif SC", "Noto Serif SC", "Songti SC", Georgia, serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        radial-gradient(1200px 500px at 10% -10%, #efe7d7 0%, transparent 55%),
+        radial-gradient(900px 400px at 100% 0%, #ddeee7 0%, transparent 45%),
+        var(--bg);
+      font: 15px/1.55 var(--sans);
+    }
+    .wrap { max-width: 980px; margin: 0 auto; padding: 28px 18px 64px; }
+    header {
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 28px 28px 22px;
+      box-shadow: var(--shadow);
+    }
+    .eyebrow {
+      display: inline-flex; align-items: center; gap: 8px;
+      font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase;
+      color: var(--accent); font-weight: 700;
+    }
+    h1 {
+      font-family: var(--display);
+      font-size: clamp(28px, 4vw, 40px);
+      line-height: 1.15;
+      margin: 10px 0 12px;
+      font-weight: 700;
+    }
+    .lede { color: var(--muted); max-width: 46em; margin: 0; }
+    .banner {
+      margin-top: 18px;
+      padding: 12px 14px;
+      border-radius: 12px;
+      background: var(--accent-soft);
+      border: 1px solid #b7d8cc;
+      color: var(--accent);
+      font-weight: 650;
+    }
+    .banner.warn {
+      background: var(--warn-bg);
+      border-color: #efd0a8;
+      color: var(--warn);
+    }
+    .meta {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 10px;
+      margin-top: 18px;
+    }
+    .meta div {
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px 14px;
+    }
+    .meta dt { font-size: 12px; color: var(--muted); }
+    .meta dd { margin: 4px 0 0; font-weight: 700; font-size: 15px; }
+    section {
+      margin-top: 22px;
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 22px 22px 18px;
+      box-shadow: var(--shadow);
+    }
+    h2 {
+      font-family: var(--display);
+      font-size: 22px;
+      margin: 0 0 8px;
+    }
+    h3 { font-size: 16px; margin: 18px 0 8px; }
+    p { color: var(--muted); }
+    .total {
+      display: grid;
+      grid-template-columns: 1.2fr 1fr;
+      gap: 14px;
+      margin-top: 14px;
+    }
+    @media (max-width: 760px) { .total { grid-template-columns: 1fr; } }
+    .hero-price, .compare {
+      border-radius: 14px;
+      padding: 18px;
+      border: 1px solid var(--line);
+      background: #fff;
+    }
+    .hero-price {
+      background: linear-gradient(160deg, #103f34, #0b5f4b 55%, #147a5f);
+      color: #f4fff9;
+      border: none;
+    }
+    .hero-price .label { opacity: 0.85; font-size: 13px; }
+    .hero-price .num {
+      font-family: var(--display);
+      font-size: clamp(34px, 5vw, 48px);
+      font-weight: 700;
+      margin: 6px 0 4px;
+      letter-spacing: -0.02em;
+    }
+    .hero-price .sub { opacity: 0.9; font-size: 13px; }
+    .compare .num { font-size: 28px; font-weight: 750; margin: 6px 0; color: var(--warn); }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    th, td {
+      text-align: left;
+      padding: 11px 12px;
+      border-bottom: 1px solid var(--line);
+      vertical-align: top;
+    }
+    th {
+      background: #f7f3ea;
+      font-size: 12px;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+      font-weight: 700;
+    }
+    tr:last-child td { border-bottom: none; }
+    .price { font-family: var(--mono); font-weight: 700; white-space: nowrap; }
+    .tag {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      margin-right: 6px;
+    }
+    .tag.physical { background: #e8f6ec; color: var(--ok); }
+    .tag.skip { background: #fdecec; color: #9b2c2c; }
+    a { color: #0a5f8c; word-break: break-all; }
+    a:hover { text-decoration: underline; }
+    ul { margin: 8px 0 0 1.1em; color: var(--muted); }
+    li { margin: 4px 0; }
+    .foot {
+      margin-top: 18px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .sum-row td { background: #f7fbf8; font-weight: 700; color: var(--ink); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="eyebrow">内部采购汇报 · 实体硬件</div>
+      <h1>自建 GitLab：一共要买哪些硬件、多少钱</h1>
+      <p class="lede">
+        按父仓现网 CI 量（日均约 240 场 workflow、尖峰同时约 40+ job）估算。
+        目标是替代 GitHub 私有仓托管 Actions（约 <strong>$2,000/月</strong>）。
+        本页只统计<strong>可寄到公司的实体二手/企业服务器与配件</strong>，不含云主机、按量套餐、托管虚拟机。
+      </p>
+      <div class="banner">✓ 口径：戴尔 R740 类二手机架服务器 + 企业级硬盘 + UPS。全部是物理设备。</div>
+      <div class="banner warn">✗ 已排除：阿里云/腾讯云/华为云套餐、轻量应用服务器、按月 VPS、京东页里“定制整机起价但内存只有 32G”的引流价、任何按小时计费算力。</div>
+      <dl class="meta">
+        <div><dt>询价基准</dt><dd>2026-11-11 前后淘宝挂牌</dd></div>
+        <div><dt>架构</dt><dd>2 台实体机（应用 + Runner）</dd></div>
+        <div><dt>软件</dt><dd>GitLab CE（免费）自建</dd></div>
+        <div><dt>详细 BOM</dt><dd>gitlab-selfhost-hw-bom.md</dd></div>
+      </dl>
+    </header>
+
+    <section>
+      <h2>一、总价结论</h2>
+      <div class="total">
+        <div class="hero-price">
+          <div class="label">建议采购整套（实体硬件）</div>
+          <div class="num">¥1.5万 – 2.5万</div>
+          <div class="sub">一次性买断 · 含 2 台服务器机头、必要企业盘、UPS 粗算<br />Runner 单机（机头+盘）大约 ¥0.9万 – 1.4万</div>
+        </div>
+        <div class="compare">
+          <div class="label" style="color:var(--muted);font-size:13px;">若不自建、继续 GitHub private 托管 CI</div>
+          <div class="num">≈ $1.9k–$2.1k / 月</div>
+          <p style="margin:0;color:var(--muted);font-size:13px;">约合每月 ¥1.4 万量级（仅 Actions 算力，未计席位）。实体硬件大约 <strong>1–2 个月</strong> 就能摊回。</p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>二、清单与价格（只含真实硬件）</h2>
+      <p>下表金额为 <strong>2026-11 淘宝可见挂牌/合理询价区间</strong>。成交价以你打开链接、选定 SKU、客服含票报价为准。</p>
+
+      <h3>1）机器 B · CI Runner（大头，实体二手 R740）</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>物料</th>
+            <th>规格（实体）</th>
+            <th>挂牌/询价</th>
+            <th>核对链接</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="tag physical">实体机</span>Runner 机头</td>
+            <td>Dell R740 · 双路金牌 <strong>6133×2</strong>（约 40 核）· <strong>256G ECC</strong></td>
+            <td class="price">¥4,150<br /><span style="font-weight:500;color:var(--muted);font-size:12px;">须选手动 SKU</span></td>
+            <td><a href="https://pcdetail.taobao.com/eDVTT0V2NlJaNVMzcHBDY3lrVkExQT09.html" target="_blank" rel="noopener">淘宝详情（选「金牌6133*2+256G」）</a></td>
+          </tr>
+          <tr>
+            <td><span class="tag physical">实体机</span>同规格对照</td>
+            <td>Dell R740 · <strong>6130×2</strong> · 256G · 双电 ·（页面还带 8×8T 机械盘，CI 不需要）</td>
+            <td class="price">¥7,180<br /><span style="font-weight:500;color:var(--muted);font-size:12px;">砍掉大硬盘后预期 ¥4.5k–6.5k</span></td>
+            <td>
+              <a href="https://www.quandazhe.com/taobao-item-M9A3ArHVky3xDDWCZ.htm" target="_blank" rel="noopener">京美商品聚合页</a><br />
+              <a href="https://shop655186229.taobao.com/" target="_blank" rel="noopener">京美店铺 shop655186229</a>
+            </td>
+          </tr>
+          <tr>
+            <td><span class="tag physical">实体盘</span>系统盘</td>
+            <td>企业级 SSD <strong>960G ×1</strong>（SATA/NVMe）</td>
+            <td class="price">¥600 – 1,700</td>
+            <td><a href="https://www.taobao.com/list/product/%E4%BC%81%E4%B8%9A%E7%BA%A7%E5%9B%BA%E6%80%81%E7%A1%AC%E7%9B%98960.htm" target="_blank" rel="noopener">淘宝：企业级固态 960</a></td>
+          </tr>
+          <tr>
+            <td><span class="tag physical">实体盘</span>Docker 缓存</td>
+            <td>企业级 NVMe <strong>1.92T ×2</strong>（例：三星 PM983 等拆机盘）</td>
+            <td class="price">¥2,500 – 3,000 / 块<br />小计约 ¥5,000 – 6,000</td>
+            <td><a href="https://www.taobao.com/list/product/nvme%E4%BC%81%E4%B8%9A%E5%9B%BA%E6%80%81.htm" target="_blank" rel="noopener">淘宝：nvme 企业固态</a></td>
+          </tr>
+          <tr class="sum-row">
+            <td colspan="2">Runner 小计（机头 + 盘）</td>
+            <td class="price" colspan="2">约 ¥9,000 – 14,000</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>2）机器 A · GitLab 应用（实体二手 R740 / 同代）</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>物料</th>
+            <th>规格（实体）</th>
+            <th>挂牌/询价</th>
+            <th>说明</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="tag physical">实体机</span>应用机头</td>
+            <td>R740 双路合计 <strong>16–32 核</strong> · <strong>128G ECC</strong> · <strong>双电</strong></td>
+            <td class="price">¥3,000 – 6,000</td>
+            <td>可从低配金牌/银牌整机加内存；同店 R740 列表约 ¥1.8k–3.8k 起，补到 128G 后进入此区间</td>
+          </tr>
+          <tr>
+            <td><span class="tag physical">实体盘</span>系统 RAID1</td>
+            <td>企业级 SSD <strong>960G ×2</strong></td>
+            <td class="price">¥1,200 – 3,400</td>
+            <td>做 RAID1 放 OS + GitLab 数据</td>
+          </tr>
+          <tr>
+            <td><span class="tag physical">实体盘</span>Registry / 备份（可选）</td>
+            <td>企业级 <strong>1.92T ×1</strong></td>
+            <td class="price">¥2,000 – 3,000</td>
+            <td>可第二批再买</td>
+          </tr>
+          <tr class="sum-row">
+            <td colspan="2">应用机小计（含 RAID1 盘，Registry 可选）</td>
+            <td class="price" colspan="2">约 ¥4,200 – 9,400（含可选盘偏上）</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>3）机房配件（实体）</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>物料</th>
+            <th>规格</th>
+            <th>询价</th>
+            <th>备注</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="tag physical">实体</span>UPS</td>
+            <td>在线式 <strong>1.5–3 kVA</strong>，带两台 2U</td>
+            <td class="price">¥1,000 – 2,500</td>
+            <td>京东/本地弱电均可；非云产品</td>
+          </tr>
+          <tr>
+            <td><span class="tag physical">实体</span>导轨 / 托架</td>
+            <td>R740 原厂滑轨 ×2、2.5" 盘架补齐</td>
+            <td class="price">¥200 – 800</td>
+            <td>询价时要求卖家配齐</td>
+          </tr>
+          <tr class="sum-row">
+            <td colspan="2">配件小计</td>
+            <td class="price" colspan="2">约 ¥1,200 – 3,300</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>三、加总（采购员直接看这张）</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>类别</th>
+            <th>内容</th>
+            <th>金额（人民币）</th>
+            <th>类型</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>B · Runner</td>
+            <td>1 台双路金牌 256G 机头 + 系统盘 + 2×1.92T NVMe</td>
+            <td class="price">¥9,000 – 14,000</td>
+            <td><span class="tag physical">实体硬件</span></td>
+          </tr>
+          <tr>
+            <td>A · GitLab</td>
+            <td>1 台 128G 应用机 + 2×960G RAID1（Registry 盘可选）</td>
+            <td class="price">¥4,200 – 9,400</td>
+            <td><span class="tag physical">实体硬件</span></td>
+          </tr>
+          <tr>
+            <td>配件</td>
+            <td>UPS + 导轨/托架</td>
+            <td class="price">¥1,200 – 3,300</td>
+            <td><span class="tag physical">实体硬件</span></td>
+          </tr>
+          <tr class="sum-row">
+            <td>合计</td>
+            <td>公司自建起步整套</td>
+            <td class="price">¥1.5万 – 2.5万</td>
+            <td><span class="tag physical">一次性买断</span></td>
+          </tr>
+        </tbody>
+      </table>
+      <p style="margin-top:12px;">未计入：机柜托管月费（若放外部约 ¥400–700/U·月）、电费、发票税点差异、运费。GitLab CE 软件本身 <strong>¥0</strong>。</p>
+    </section>
+
+    <section>
+      <h2>四、哪些看起来像硬件、其实不要算进来</h2>
+      <ul>
+        <li><span class="tag skip">排除</span> 云厂商「云服务器 / 轻量应用服务器 / 按量或包年套餐」——那是租用虚拟机，不是买设备。</li>
+        <li><span class="tag skip">排除</span> 京东部分 R740「起价很低但只有 32G/64G 内存」的定制引流价——不是本汇报里的 256G Runner 成品价。</li>
+        <li><span class="tag skip">排除</span> 页面搭配的 8×8T 机械盘仓储配置——CI Runner 不需要，询价时应明确去掉或换成 NVMe。</li>
+        <li><span class="tag physical">保留</span> 淘宝/深圳档口的 <strong>Dell PowerEdge R740 二手机架服务器</strong>、企业级 SSD/NVMe、UPS——可收货、可上架、可开票的实物。</li>
+      </ul>
+      <h3>打开链接时请这样核对</h3>
+      <ul>
+        <li>标题或 SKU 出现「机架式 / 二手服务器 / R740 / 金牌613x」且能选具体 CPU+内存组合；</li>
+        <li>不是「云主机」「ECS」「轻量」「按月」；</li>
+        <li>Runner：确认选中 <strong>双路金牌 + 256G</strong> 后再看价格；</li>
+        <li>向客服要：双电、REG ECC 内存、是否含票、质保天数、通电时间。</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>五、依据与下一步</h2>
+      <ul>
+        <li>用量依据：同目录 <code>parent-daily-ci-pr-stats.md</code>（父仓约 14 日 SGT CI/PR 统计）。</li>
+        <li>规格依据：同目录 <code>gitlab-selfhost-hw-bom.md</code>（完整 BOM 与询价原话）。</li>
+        <li>下一步：用本页链接找 2–3 家要<strong>含税含运</strong>报价，把报价表发回核对后再下单。</li>
+      </ul>
+      <p class="foot">
+        本 HTML 为采购对照汇报，金额来自公开挂牌抽样，不构成卖家锁价。生成日期：2026-11-11（Asia/Singapore）。
+      </p>
+    </section>
+  </div>
+</body>
+</html>
